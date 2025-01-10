@@ -1,6 +1,9 @@
 ---
-title: "Template"
-format: html
+title: "Lab 1 workup"
+format: 
+  html: 
+    code-fold: true
+    toc: true
 execute:
   eval: false
 ---
@@ -20,7 +23,7 @@ library(tmap)
 What do we need to change to get the data to load in the following chunk?
 
 ```{r}
-sfo_trees_df<-read_csv(here("data","trees")) |> janitor::clean_names()
+sfo_trees_df<-read_csv(here("data","sfo_trees", "sfo_trees.csv")) #|> janitor::clean_names()
 ```
 
 ## Part 1: Data exploration
@@ -31,10 +34,28 @@ What are some interesting questions you could ask about the data?
 
 Write them below:
 
+What is the significance of site order? 
+Are there more of some species than others? 
+How many unique species are there? 
 
 
+How many counts of observation by legal_status? Focus on the highest tree? 
 
+```{r}
+sfo_new_table = sfo_trees_df %>% 
+  group_by(LegalStatus) %>% 
+  summarize(tree_count = n()) %>% 
+  slice_max(tree_count, n=5)
+```
 
+```{r}
+ggplot(sfo_new_table, aes(x = LegalStatus, y=tree_count)) + 
+  geom_col(binwidth = 5) + 
+  labs(y = 'Tree Count', x = 'Legal Status') +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle=45,hjust=1))
+
+```
 
 
 
@@ -45,14 +66,16 @@ Describe what this piece of code does. Feel free to run it to help you understan
 
 ```{r}
 permitted_mta_dpw<-sfo_trees_df |> 
-  filter(legal_status == 'Permitted Site' & %in% c("MTA","DPW"))
+  filter(LegalStatus == 'Permitted Site' & Caretaker %in% c("MTA","DPW"))
 ```
 
 
 What does the `%in%` do? Write an example to explain the `%in%` operator to your neighbor using the empty code chunk below
 
 ```{r}
+ex <- seq(1:10)
 
+ex %in% c(1,2,11)
 ```
 
 
@@ -62,10 +85,9 @@ Our boss tasked us with identifying oak and pine trees in SF based on legal stat
 
 Write pseudocode on how you would solve it
 
-
-
-
-
+Get rid of all of the irrelevant columns 
+Filter out all plants that are not pine and oak 
+Summazire the count of the oak and pine trees 
 
 
 
@@ -73,15 +95,18 @@ Data wrangle done below:
 
 
 ```{r}
-
+oak_pine_df <- sfo_trees_df %>% 
+  filter(str_detect(Species, "Oak") | str_detect(Species,"Pine")) %>% 
+  select(Species, LegalStatus, PlantDate, Latitude, Longitude) %>% 
+  mutate(type = ifelse(str_detect(Species, "Oak"), "Oak", "Pine")) 
 ```
 
 
 Summary stats
 
 ```{r}
-oak_pine_count<-oak_pine_df |> 
-  group_by(legal_status,type)
+oak_pine_count<-oak_pine_df %>% 
+  group_by(LegalStatus,type) %>% 
   summarize(count=n())
 ```
 
@@ -90,7 +115,10 @@ oak_pine_count<-oak_pine_df |>
 Plot the locations of the trees as a scatterplot
 
 ```{r}
-
+ggplot(oak_pine_df,aes(x = Longitude, y = Latitude, color = type)) + 
+  geom_point() +
+  labs(color = "Tree Type") +
+  theme_bw()
 ```
 
 
@@ -100,7 +128,7 @@ Plot the locations of the trees as a scatterplot
 Why have a list of native trees in the data folder.
 
 ```{r}
-ca_native_df<-read_csv(here('data/sfo/ca_native_spp.csv'))
+ca_native_df<-read_csv(here('data/sfo_trees/ca_native_spp.csv'))
 
 # Why can I use this format instead of the usual here("data","folder","file")?
 ```
@@ -121,8 +149,22 @@ lubridate::year("2022-11-16")
 ```
 
 ```{r}
-oak_pine_year_df<-????
+sfo_trees_native <- sfo_trees_df %>% 
+  separate(Species, into=c('spp_sci', 'spp_common'), sep=' :: ') %>% 
+  select(starts_with('spp'), 'PlantDate', 'LegalStatus', 'Longitude', 'Latitude') %>%  
+  mutate(ca_native=(spp_sci %in% ca_native_df$scientific_name))
 ```
+
+```{r}
+oak_pine_year_df <- sfo_trees_native %>% 
+  filter(spp_sci %in% c('Quercus agrifolia', 'Pinus radiata')) %>% 
+  mutate(plant_year = lubridate::year(PlantDate))
+
+# Now we input into a t-test 
+
+t.test(plant_year~spp_sci, data=oak_pine_year_df)
+```
+
 
 
 Use the graph below to support your results. What does each line of code do in the ggplot?
@@ -147,8 +189,8 @@ Set the coordinate reference system
 
 ```{r}
 oak_pine_sf<-oak_pine_year_df |> 
-  drop_na(longtide,latitude) |> 
-  st_as_sf(coords=c("longitude","latitude"))
+  drop_na(Longitude,Latitude) |> 
+  st_as_sf(coords=c("Longitude","Latitude"))
 
 st_crs(oak_pine_sf)<-4326
 
@@ -180,7 +222,10 @@ ggplot(data = sfo_map) +
 We have all the ingredients. How would you plot these two together to see the trees locations in the city?
 
 ```{r}
-
+ggplot()+ 
+  geom_sf(data=sfo_map, size = 0.1, color = 'darkgrey')+ 
+  geom_sf(data=oak_pine_sf, aes(color = spp_sci), size = 0.5)+ 
+  theme_void()
 ```
 
 
@@ -191,7 +236,7 @@ We can make maps interactive in R using the tmaps package (another reason why ht
 There are other packages that do similar things. Consider for your shiny apps!
 
 ```{r}
-tmap_model("view")
+tmap_mode("view")
 
 tm_shape(oak_pine_sf)+
   tm_dots(col='spp_sci')
